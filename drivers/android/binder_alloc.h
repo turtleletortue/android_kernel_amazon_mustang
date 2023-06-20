@@ -11,10 +11,8 @@
  * GNU General Public License for more details.
  *
  */
-
 #ifndef _LINUX_BINDER_ALLOC_H
 #define _LINUX_BINDER_ALLOC_H
-
 #include <linux/rbtree.h>
 #include <linux/list.h>
 #include <linux/mm.h>
@@ -22,10 +20,8 @@
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
 #include <linux/list_lru.h>
-
 extern struct list_lru binder_alloc_lru;
 struct binder_transaction;
-
 /**
  * struct binder_buffer - buffer used for binder transactions
  * @entry:              entry alloc->buffers
@@ -52,16 +48,13 @@ struct binder_buffer {
 	unsigned async_transaction:1;
 	unsigned free_in_progress:1;
 	unsigned debug_id:28;
-
 	struct binder_transaction *transaction;
-
 	struct binder_node *target_node;
 	size_t data_size;
 	size_t offsets_size;
 	size_t extra_buffers_size;
 	void *data;
 };
-
 /**
  * struct binder_lru_page - page object used for binder shrinker
  * @page_ptr: pointer to physical page in mmap'd space
@@ -73,7 +66,6 @@ struct binder_lru_page {
 	struct page *page_ptr;
 	struct binder_alloc *alloc;
 };
-
 /**
  * struct binder_alloc - per-binder proc state for binder allocator
  * @vma:                vm_area_struct passed to mmap_handler
@@ -115,7 +107,6 @@ struct binder_alloc {
 	int pid;
 	size_t pages_high;
 };
-
 #ifdef CONFIG_ANDROID_BINDER_IPC_SELFTEST
 void binder_selftest_alloc(struct binder_alloc *alloc);
 #else
@@ -145,7 +136,6 @@ extern void binder_alloc_print_allocated(struct seq_file *m,
 					 struct binder_alloc *alloc);
 void binder_alloc_print_pages(struct seq_file *m,
 			      struct binder_alloc *alloc);
-
 /**
  * binder_alloc_get_free_async_space() - get free space available for async
  * @alloc:	binder_alloc for this proc
@@ -156,13 +146,11 @@ static inline size_t
 binder_alloc_get_free_async_space(struct binder_alloc *alloc)
 {
 	size_t free_async_space;
-
 	mutex_lock(&alloc->mutex);
 	free_async_space = alloc->free_async_space;
 	mutex_unlock(&alloc->mutex);
 	return free_async_space;
 }
-
 /**
  * binder_alloc_get_user_buffer_offset() - get offset between kernel/user addrs
  * @alloc:	binder_alloc for this proc
@@ -183,6 +171,4 @@ binder_alloc_get_user_buffer_offset(struct binder_alloc *alloc)
 	 */
 	return alloc->user_buffer_offset;
 }
-
 #endif /* _LINUX_BINDER_ALLOC_H */
-

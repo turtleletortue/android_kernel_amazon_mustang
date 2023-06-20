@@ -32,6 +32,11 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 
+#if defined(CONFIG_CPU_FREQ_SCHED_ASSIST)
+/* removed : && defined(CONFIG_MTK_ACAO_SUPPORT)*/
+#include <mtk_cpufreq_api.h>
+#endif
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/cpufreq_interactive.h>
 
@@ -184,7 +189,8 @@ static void gov_slack_timer_start(struct interactive_cpu *icpu, int cpu)
 	struct interactive_tunables *tunables = icpu->ipolicy->tunables;
 
 	icpu->slack_timer.expires = jiffies + tunables->timer_slack_delay;
-	add_timer_on(&icpu->slack_timer, cpu);
+	if (!timer_pending(&icpu->slack_timer))
+		add_timer_on(&icpu->slack_timer, cpu);
 }
 
 static void gov_slack_timer_modify(struct interactive_cpu *icpu)
@@ -531,6 +537,17 @@ static void cpufreq_interactive_adjust_cpu(unsigned int cpu,
 		icpu->pol_floor_val_time = fvt;
 	}
 
+#if defined(CONFIG_CPU_FREQ_SCHED_ASSIST)
+/* removed : && defined(CONFIG_MTK_ACAO_SUPPORT)*/
+	mt_cpufreq_set_by_wfi_load_cluster(arch_get_cluster_id(policy->cpu),
+						max_freq);
+	if (max_freq != policy->cur) {
+		for_each_cpu(i, policy->cpus) {
+			icpu = &per_cpu(interactive_cpu, i);
+			icpu->pol_hispeed_val_time = hvt;
+		}
+	}
+#else
 	if (max_freq != policy->cur) {
 		__cpufreq_driver_target(policy, max_freq, CPUFREQ_RELATION_H);
 		for_each_cpu(i, policy->cpus) {
@@ -538,6 +555,7 @@ static void cpufreq_interactive_adjust_cpu(unsigned int cpu,
 			icpu->pol_hispeed_val_time = hvt;
 		}
 	}
+#endif
 
 	trace_cpufreq_interactive_setspeed(cpu, max_freq, policy->cur);
 }
@@ -1212,12 +1230,14 @@ int cpufreq_interactive_init(struct cpufreq_policy *policy)
 	if (ret)
 		goto fail;
 
+#ifndef CONFIG_CPU_FREQ_GOV_INTERACTIVE_DISABLE_IDLE_BOOST
 	/* One time initialization for governor */
 	if (!interactive_gov.usage_count++) {
 		idle_notifier_register(&cpufreq_interactive_idle_nb);
 		cpufreq_register_notifier(&cpufreq_notifier_block,
 					  CPUFREQ_TRANSITION_NOTIFIER);
 	}
+#endif
 
  out:
 	mutex_unlock(&global_tunables_lock);

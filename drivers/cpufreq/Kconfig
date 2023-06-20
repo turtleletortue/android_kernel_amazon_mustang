@@ -232,6 +232,13 @@ config CPU_FREQ_GOV_INTERACTIVE
 
 	  If in doubt, say N.
 
+config CPU_FREQ_GOV_INTERACTIVE_DISABLE_IDLE_BOOST
+	bool "Dont register idle notification"
+	depends on CPU_FREQ_GOV_INTERACTIVE
+	default n
+	help
+	  Don't register idle notification in INTERACTIVE governor
+
 config CPU_FREQ_GOV_SCHEDUTIL
 	bool "'schedutil' cpufreq policy governor"
 	depends on CPU_FREQ && SMP

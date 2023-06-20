@@ -615,11 +615,11 @@ int fib_nl_delrule(struct sk_buff *skb, struct nlmsghdr *nlh)
 		if (tb[FRA_TUN_ID] &&
 		    (rule->tun_id != nla_get_be64(tb[FRA_TUN_ID])))
 			continue;
-
+/*
 		if (tb[FRA_L3MDEV] &&
 		    (rule->l3mdev != nla_get_u8(tb[FRA_L3MDEV])))
 			continue;
-
+*/
 		if (uid_range_set(&range) &&
 		    (!uid_eq(rule->uid_range.start, range.start) ||
 		     !uid_eq(rule->uid_range.end, range.end)))
@@ -752,8 +752,10 @@ static int fib_nl_fill_rule(struct sk_buff *skb, struct fib_rule *rule,
 	     nla_put_u32(skb, FRA_GOTO, rule->target)) ||
 	    (rule->tun_id &&
 	     nla_put_be64(skb, FRA_TUN_ID, rule->tun_id, FRA_PAD)) ||
+/*
 	    (rule->l3mdev &&
 	     nla_put_u8(skb, FRA_L3MDEV, rule->l3mdev)) ||
+*/
 	    (uid_range_set(&rule->uid_range) &&
 	     nla_put_uid_range(skb, &rule->uid_range)))
 		goto nla_put_failure;

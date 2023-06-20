@@ -44,5 +44,5 @@ extern void dump_backtrace_entry(unsigned long where, unsigned long from, unsign
 extern void ptrace_break(struct task_struct *tsk, struct pt_regs *regs);
 
 extern void *vectors_page;
-
+void dump_instr(const char *lvl, struct pt_regs *regs);
 #endif

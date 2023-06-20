@@ -3,6 +3,8 @@
  *
  * Author: Sami Tolvanen <samitolvanen@google.com>
  *
+ * Portions copyright 2016-2017 Amazon Technologies, Inc. All Rights Reserved.
+ *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
  * Software Foundation; either version 2 of the License, or (at your option)
@@ -14,6 +16,11 @@
 #include <linux/sysfs.h>
 
 #define DM_MSG_PREFIX	"verity-fec"
+
+/* maximum length of FEC environment string sent via uevent */
+#define FEC_ENV_LENGTH	42
+#define FEC_ENV_VAR_NAME	"DM_VERITY_ERR_BLOCK_NR"
+#define FEC_MAX_ERROR 	100
 
 /*
  * If error correction has been configured, returns true.
@@ -428,6 +435,47 @@ static int fec_bv_copy(struct dm_verity *v, struct dm_verity_io *io, u8 *data,
 }
 
 /*
+ * Log the original corrupted block number.
+ * a) A log indicating original corrupted block number will be printed to kmsg buffer.
+ * b) A uevent message will also be sent to userland via kobject_uevent_env.
+ * c) If FEC reaches maximum corruption threshold, return -EIO. Otherwise return 0.
+ */
+static int fec_log_errors(struct dm_verity *v, enum verity_block_type type,
+			sector_t block)
+{
+	char verity_env[FEC_ENV_LENGTH];
+	char *envp[] = { verity_env, NULL };
+	const char *type_str = "";
+	struct mapped_device *md = dm_table_get_md(v->ti->table);
+	struct dm_verity_fec *f = v->fec;
+
+	if (atomic_read(&f->corrected) >= FEC_MAX_ERROR) {
+		DMWARN_LIMIT("%s: reached maximum fec error correction", v->data_dev->name);
+		return -EIO;
+	}
+
+	switch (type) {
+	case DM_VERITY_BLOCK_TYPE_DATA:
+		type_str = "data";
+		break;
+	case DM_VERITY_BLOCK_TYPE_METADATA:
+		type_str = "metadata";
+		break;
+	default:
+		type_str = "unknown";
+	}
+
+	DMERR("%s: %s block %llu is corrupted", v->data_dev->name, type_str,
+		(unsigned long long)block);
+
+	snprintf(verity_env, FEC_ENV_LENGTH, "%s=%d,%llu",
+		FEC_ENV_VAR_NAME, type, (unsigned long long)block);
+	kobject_uevent_env(&disk_to_dev(dm_disk(md))->kobj, KOBJ_CHANGE, envp);
+
+	return 0;
+}
+
+/*
  * Correct errors in a block. Copies corrected block to dest if non-NULL,
  * otherwise to a bio_vec starting from iter.
  */
@@ -446,6 +494,10 @@ int verity_fec_decode(struct dm_verity *v, struct dm_verity_io *io,
 		DMWARN_LIMIT("%s: FEC: recursion too deep", v->data_dev->name);
 		return -EIO;
 	}
+
+	r = fec_log_errors(v, type, block);
+	if (r < 0)
+		return r;
 
 	fio->level++;
 

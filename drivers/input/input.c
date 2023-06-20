@@ -29,6 +29,10 @@
 #include <linux/rcupdate.h>
 #include "input-compat.h"
 
+#ifdef CONFIG_AMAZON_METRICS_LOG
+#include <linux/metricslog.h>
+#endif
+
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@suse.cz>");
 MODULE_DESCRIPTION("Input core");
 MODULE_LICENSE("GPL");
@@ -39,6 +43,13 @@ static DEFINE_IDA(input_ida);
 
 static LIST_HEAD(input_dev_list);
 static LIST_HEAD(input_handler_list);
+
+#ifdef CONFIG_AMAZON_METRICS_LOG
+static atomic_t vol_up_counter;
+static atomic_t vol_down_counter;
+static atomic_t touch_tap_counter;
+struct delayed_work metrics_work;
+#endif
 
 /*
  * input_mutex protects access to both input_dev_list and input_handler_list.
@@ -435,6 +446,16 @@ void input_event(struct input_dev *dev,
 		spin_lock_irqsave(&dev->event_lock, flags);
 		input_handle_event(dev, type, code, value);
 		spin_unlock_irqrestore(&dev->event_lock, flags);
+#ifdef CONFIG_AMAZON_METRICS_LOG
+		if (type == EV_ABS && code == ABS_MT_POSITION_Y)
+			atomic_inc(&touch_tap_counter);
+
+		if (type == EV_KEY && code == KEY_VOLUMEDOWN)
+			atomic_inc(&vol_down_counter);
+
+		if (type == EV_KEY && code == KEY_VOLUMEUP)
+			atomic_inc(&vol_up_counter);
+#endif
 	}
 }
 EXPORT_SYMBOL(input_event);
@@ -850,16 +871,18 @@ static int input_default_setkeycode(struct input_dev *dev,
 		}
 	}
 
-	__clear_bit(*old_keycode, dev->keybit);
-	__set_bit(ke->keycode, dev->keybit);
-
-	for (i = 0; i < dev->keycodemax; i++) {
-		if (input_fetch_keycode(dev, i) == *old_keycode) {
-			__set_bit(*old_keycode, dev->keybit);
-			break; /* Setting the bit twice is useless, so break */
+	if (*old_keycode <= KEY_MAX) {
+		__clear_bit(*old_keycode, dev->keybit);
+		for (i = 0; i < dev->keycodemax; i++) {
+			if (input_fetch_keycode(dev, i) == *old_keycode) {
+				__set_bit(*old_keycode, dev->keybit);
+				/* Setting the bit twice is useless, so break */
+				break;
+			}
 		}
 	}
 
+	__set_bit(ke->keycode, dev->keybit);
 	return 0;
 }
 
@@ -915,9 +938,13 @@ int input_set_keycode(struct input_dev *dev,
 	 * Simulate keyup event if keycode is not present
 	 * in the keymap anymore
 	 */
-	if (test_bit(EV_KEY, dev->evbit) &&
-	    !is_event_supported(old_keycode, dev->keybit, KEY_MAX) &&
-	    __test_and_clear_bit(old_keycode, dev->key)) {
+	if (old_keycode > KEY_MAX) {
+		dev_warn(dev->dev.parent ?: &dev->dev,
+			 "%s: got too big old keycode %#x\n",
+			 __func__, old_keycode);
+	} else if (test_bit(EV_KEY, dev->evbit) &&
+		   !is_event_supported(old_keycode, dev->keybit, KEY_MAX) &&
+		   __test_and_clear_bit(old_keycode, dev->key)) {
 		struct input_value vals[] =  {
 			{ EV_KEY, old_keycode, 0 },
 			input_value_sync
@@ -2413,6 +2440,36 @@ void input_free_minor(unsigned int minor)
 }
 EXPORT_SYMBOL(input_free_minor);
 
+#ifdef CONFIG_AMAZON_METRICS_LOG
+static void metrics_count_work(struct work_struct *work)
+{
+	char buf[128] = {0};
+	struct delayed_work *dw = container_of(work, struct delayed_work, work);
+
+	snprintf(buf, sizeof(buf),
+		"input_event:def:touch_tap=%d;CT;1:NA",
+		atomic_xchg(&touch_tap_counter, 0));
+
+	log_to_metrics(ANDROID_LOG_INFO, "InputEvent", buf);
+	memset(buf, 0, sizeof(buf));
+
+	snprintf(buf, sizeof(buf),
+		"input_event:def:key_voldown=%d;CT;1:NA",
+		atomic_xchg(&vol_down_counter, 0));
+
+	log_to_metrics(ANDROID_LOG_INFO, "InputEvent", buf);
+	memset(buf, 0, sizeof(buf));
+
+	snprintf(buf, sizeof(buf),
+		"input_event:def:key_volup=%d;CT;1:NA",
+		atomic_xchg(&vol_up_counter, 0));
+
+	log_to_metrics(ANDROID_LOG_INFO, "InputEvent", buf);
+
+	schedule_delayed_work(dw, 7200*HZ);
+}
+#endif
+
 static int __init input_init(void)
 {
 	int err;
@@ -2434,6 +2491,11 @@ static int __init input_init(void)
 		goto fail2;
 	}
 
+#ifdef CONFIG_AMAZON_METRICS_LOG
+	INIT_DELAYED_WORK(&metrics_work, metrics_count_work);
+	schedule_delayed_work(&metrics_work, 0);
+#endif
+
 	return 0;
 
  fail2:	input_proc_exit();
@@ -2447,6 +2509,11 @@ static void __exit input_exit(void)
 	unregister_chrdev_region(MKDEV(INPUT_MAJOR, 0),
 				 INPUT_MAX_CHAR_DEVICES);
 	class_unregister(&input_class);
+
+#ifdef CONFIG_AMAZON_METRICS_LOG
+	cancel_delayed_work(&metrics_work);
+#endif
+
 }
 
 subsys_initcall(input_init);
